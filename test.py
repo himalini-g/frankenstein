@@ -30,6 +30,7 @@ class BodyPart():
     self.bounding_box = None
     self.joints = None
     self.joint_origin = None
+    self.joint_origin_debug = None
     return
   def trackPart(self, landmarks, parent_image):
 
@@ -41,9 +42,12 @@ class BodyPart():
       self.joints = np.array([[point.x, point.y] for point in landmarks.landmark])[self.joint_indexes]
       self.joints *= self.image_dims
       self.joints = self.joints.astype('int64')
-     
-      self.joint_origin  = np.array([np.sum(self.joints[:, 0][self.joint_origin_index]), np.sum(self.joints[:, 1][self.joint_origin_index])]) / self.joint_origin_index.shape[0]
-    
+
+      self.joint_origin_list = np.array([[point.x, point.y] for point in landmarks.landmark])[self.joint_origin_index]
+      self.joint_origin_list *= self.image_dims
+      self.joint_origin  = np.array([np.sum(self.joint_origin_list[:, 0]), np.sum(self.joint_origin_list[:, 1])]) / self.joint_origin_index.shape[0]
+      self.joint_origin_debug = np.copy(self.joint_origin )
+      print("assign self.joint_origin", self.joint_origin,self.joint_origin_list )
 
       self.boundingBox()
       self.cropImage(parent_image)
@@ -61,15 +65,19 @@ class BodyPart():
   
   def cropImage(self, parent_image):
     top_left= self.bounding_box[0] - self.offset[0]
-    self.joint_origin -= top_left
-    if(top_left[0] < 0):
-      top_left[0] = 0
-    if(top_left[1] < 0):
-      top_left[1] = 0
+    top_left = top_left.astype('int64')
+    
+    if(top_left[0] < 0.0):
+      top_left[0] = 0.0
+    if(top_left[1] < 0.0):
+      top_left[1] = 0.0
 
     
     bottom_right = self.bounding_box[1] + self.offset[1]
     self.part_image = parent_image[top_left[1]:bottom_right[1],top_left[0]:bottom_right[0]]
+    print("self.joint_origin -= top_left", top_left, self.joint_origin)
+    self.joint_origin -=np.array([top_left[0], top_left[1]])
+    print("self.joint_origin -= top_left", top_left, self.joint_origin)
 
   def display(self,):
     cv2.imshow('MediaPipe Pose', self.part_image)
@@ -87,9 +95,7 @@ class BodyPart():
   def debugDisplay(self,):
     for point in self.joints:
         cv2.circle(self.part_image, tuple(point - self.bounding_box[0] + self.offset[0]), 10, (255, 0, 0))
-    cv2.circle(self.part_image, tuple(self.joint_origin.astype('int64') - self.bounding_box[0] + self.offset[0]), 10, (0, 255, 0))
-
-
+ 
 class Body():
   def __init__(self, frame_width, frame_height):
     # initialize with these
@@ -102,9 +108,10 @@ class Body():
   
     self.LeftArm = BodyPart(
       np.array([12, 14, 16, 18, 20, 22]), 
-      [12],
-      [500, 500],
-      np.array([frame_width, frame_height]))
+      np.array([12]),
+      np.array([700, 700]),
+      np.array([frame_width, frame_height]),
+      offset=np.array([[100, 30], [100, 30]]).astype('int64'))
   
     # self.RightArm = BodyPart(
     #   np.array([11, 13, 15, 17, 29, 21]), 
@@ -117,7 +124,7 @@ class Body():
     #   [11, 12, 24, 23],
     #   [200, 250],
     #   np.array([frame_width, frame_height]))
-    self.partList = [self.Head]
+    self.partList = [self.Head, self.LeftArm]
     # self.partList = [self.Head, self.LeftArm, self.RightArm, self.Torso]
 
     self.canvas_width = 2000
@@ -128,19 +135,45 @@ class Body():
 
   def update(self, camera_input, landmarks):
     self.Head.trackPart(landmarks, camera_input)
- 
-    
+    for part in self.partList:
+      part.trackPart(landmarks, camera_input)
+    for part in self.partList:
+      if(part.part_detected):
+        part.scale(0.7)
+
     if(self.Head.part_detected):
-      self.Head.scale(0.3)
-  
+      
       image_offset_x = int(self.Head.part_image.shape[0])
       image_offset_y = int(self.Head.part_image.shape[1]//2)
 
       self.image[
         self.Head.parent_origin[0] - image_offset_x :self.Head.parent_origin[0] - image_offset_x + self.Head.part_image.shape[0], 
         self.Head.parent_origin[1] - image_offset_y:self.Head.parent_origin[1] -  image_offset_y + self.Head.part_image.shape[1]] = self.Head.part_image
- 
- 
+    if(self.LeftArm.part_detected):
+      left_arm_offset_y = int(self.LeftArm.joint_origin[0])
+      left_arm_offset_x = int(self.LeftArm.joint_origin[1])
+      self.image[0:self.LeftArm.part_image.shape[0], 0:self.LeftArm.part_image.shape[1]] = self.LeftArm.part_image
+      print("joint", )
+      cv2.circle(self.image, tuple(self.LeftArm.joint_origin.astype('int64')), 10, (0, 0, 255), 10)
+    
+      
+      # left_arm_offset_y = int(self.LeftArm.joint_origin[1] - self.Head.part_image.shape[1])
+      
+      # origin_x = self.LeftArm.parent_origin[0] + left_arm_offset_x 
+      # origin_y = self.LeftArm.parent_origin[1] + left_arm_offset_y
+      # print(origin_x, origin_y, origin_x +self.LeftArm.part_image.shape[0], origin_y + self.LeftArm.part_image.shape[1] )
+      # # self.image[
+      # #   origin_x:origin_x + self.LeftArm.part_image.shape[0], 
+      # #   origin_y:origin_y + self.LeftArm.part_image.shape[1]] = self.LeftArm.part_image
+      # self.image[
+      #   self.LeftArm.parent_origin[0] - left_arm_offset_x:self.LeftArm.parent_origin[0] - left_arm_offset_x + self.LeftArm.part_image.shape[0], 
+        # self.LeftArm.parent_origin[1]:self.LeftArm.parent_origin[1] + self.LeftArm.part_image.shape[1]] = self.LeftArm.part_image
+      self.image[
+        self.LeftArm.parent_origin[0] - left_arm_offset_x:self.LeftArm.parent_origin[0] + self.LeftArm.part_image.shape[0] - left_arm_offset_x, 
+        self.LeftArm.parent_origin[1] - left_arm_offset_y:self.LeftArm.parent_origin[1] - left_arm_offset_y + self.LeftArm.part_image.shape[1]] = self.LeftArm.part_image
+      print(tuple(self.LeftArm.joint_origin))
+
+      cv2.circle(self.image, tuple(self.LeftArm.parent_origin), 10, (0, 255, 0), 10)
   def display(self):
   
     cv2.imshow("body", self.image)
