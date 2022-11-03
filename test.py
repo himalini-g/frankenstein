@@ -90,7 +90,7 @@ class BodyPart():
 
     
     bottom_right = self.bounding_box[1] + self.offset[1]
-    self.part_image = parent_image[top_left[1]:bottom_right[1],top_left[0]:bottom_right[0]]
+    self.part_image = np.copy(parent_image[top_left[1]:bottom_right[1],top_left[0]:bottom_right[0]])
     
 
     self.joint_origin -= np.array([top_left[0], top_left[1]])
@@ -170,64 +170,92 @@ class Body():
     for part in self.partList:
       if(part.part_detected):
         part.scale(0.7)
-
+    new_image = np.zeros_like(self.image)
+    mask = np.zeros_like(self.image)
     if(self.Head.part_detected):
       
       image_offset_x = int(self.Head.part_image.shape[0])
       image_offset_y = int(self.Head.part_image.shape[1]//2)
 
-      self.image[
+      new_image *= 0
+      mask *= 0
+      new_image[
         self.Head.parent_origin[0] - image_offset_x :self.Head.parent_origin[0] - image_offset_x + self.Head.part_image.shape[0], 
         self.Head.parent_origin[1] - image_offset_y:self.Head.parent_origin[1] -  image_offset_y + self.Head.part_image.shape[1]] = self.Head.part_image
+      mask = np.copy(new_image)
+
+      mask[mask == 0] = 255
+      mask[mask != 255] = 0
+
+      self.image *= mask
+      self.image += new_image
+
     if(self.LeftArm.part_detected):
       left_arm_offset_y = int(self.LeftArm.joint_origin[0])
       left_arm_offset_x = int(self.LeftArm.joint_origin[1])
-      self.image[0:self.LeftArm.part_image.shape[0], 0:self.LeftArm.part_image.shape[1]] = self.LeftArm.part_image
+
     
       cv2.circle(self.image, tuple(self.LeftArm.joint_origin.astype('int64')), 10, (0, 0, 255), 10)
-    
-      self.image[
+
+
+      new_image *= 0
+      mask *= 0
+      new_image[
         self.LeftArm.parent_origin[0] - left_arm_offset_x:self.LeftArm.parent_origin[0] + self.LeftArm.part_image.shape[0] - left_arm_offset_x, 
         self.LeftArm.parent_origin[1] - left_arm_offset_y:self.LeftArm.parent_origin[1] - left_arm_offset_y + self.LeftArm.part_image.shape[1]] = self.LeftArm.part_image
-  
+      mask = np.copy(new_image)
+      
+
+      mask[mask == 0] = 255
+      mask[mask != 255] = 0
+
+      self.image *= mask
+      self.image += new_image
+
 
       cv2.circle(self.image, (self.LeftArm.parent_origin[1],  self.LeftArm.parent_origin[0]), 10, (0, 255, 0), 10)
     if(self.RightArm.part_detected):
       print("right_arm_detectedQ")
       left_arm_offset_y = int(self.RightArm.joint_origin[0])
       left_arm_offset_x = int(self.RightArm.joint_origin[1])
-      self.image[0:self.RightArm.part_image.shape[0], 0:self.RightArm.part_image.shape[1]] = self.RightArm.part_image
+      # self.image[0:self.RightArm.part_image.shape[0], 0:self.RightArm.part_image.shape[1]] = self.RightArm.part_image
       
-      cv2.circle(self.image, tuple(self.RightArm.joint_origin.astype('int64')), 10, (0, 0, 255), 10)
-      self.image[
+      # cv2.circle(self.image, tuple(self.RightArm.joint_origin.astype('int64')), 10, (0, 0, 255), 10)
+
+      new_image *= 0
+      mask *= 0
+      new_image[
         self.RightArm.parent_origin[0] - left_arm_offset_x:self.RightArm.parent_origin[0] + self.RightArm.part_image.shape[0] - left_arm_offset_x, 
         self.RightArm.parent_origin[1] - left_arm_offset_y:self.RightArm.parent_origin[1] - left_arm_offset_y + self.RightArm.part_image.shape[1]] = self.RightArm.part_image
-      # print(tuple(self.RightArm.joint_origin))
+
+      mask = np.copy(new_image)
+
+      mask[mask == 0] = 255
+      mask[mask != 255] = 0
+
+      self.image *= mask
+      self.image += new_image
 
       cv2.circle(self.image, (self.RightArm.parent_origin[1],  self.RightArm.parent_origin[0]), 10, (0, 255, 0), 10)
     if(self.Torso.part_detected):
       print("torso")
       torso_offset_y = int(self.Torso.joint_origin[0])
       left_arm_offset_x = int(self.Torso.joint_origin[1])
-      self.image[0:self.Torso.part_image.shape[0], 0:self.Torso.part_image.shape[1]] = self.Torso.part_image
-      
+
       cv2.circle(self.image, tuple(self.Torso.joint_origin.astype('int64')), 10, (0, 0, 255), 10)
-      # new_image = np.zeros_like(self.image)
-      # new_image[
-      #   self.Torso.parent_origin[0] - left_arm_offset_x:self.Torso.parent_origin[0] + self.Torso.part_image.shape[0] - left_arm_offset_x, 
-      #   self.Torso.parent_origin[1] - torso_offset_y:self.Torso.parent_origin[1] - torso_offset_y + self.Torso.part_image.shape[1]] = self.Torso.part_image
-      # mask = np.copy(new_image)
-      # mask[mask != 0] = -1
-      # mask[mask == 0] = 1
-      # mask[mask == -1] = 0
-      # self.image *= mask
-      # self.image += new_image
+      new_image *= 0
+      mask *= 0
 
-
-      self.image[
+      new_image[
         self.Torso.parent_origin[0] - left_arm_offset_x:self.Torso.parent_origin[0] + self.Torso.part_image.shape[0] - left_arm_offset_x, 
         self.Torso.parent_origin[1] - torso_offset_y:self.Torso.parent_origin[1] - torso_offset_y + self.Torso.part_image.shape[1]] = self.Torso.part_image
+      mask = np.copy(new_image)
 
+      mask[mask == 0] = 255
+      mask[mask != 255] = 0
+
+      self.image *= mask
+      self.image += new_image
       cv2.circle(self.image, (self.Torso.parent_origin[1],  self.Torso.parent_origin[0]), 10, (0, 255, 0), 10)
     
       
@@ -275,7 +303,7 @@ with mp_pose.Pose(
 
     if(person != None):
       person.display()
-      
+
     if cv2.waitKey(5) & 0xFF == 27:
       break
 cap.release()
