@@ -1,10 +1,3 @@
-# For webcam input:
-# plan 
-# get image 
-# paste image
-# paste all the images in a rough location
-# 
-
 import cv2
 import mediapipe as mp
 mp_drawing = mp.solutions.drawing_utils
@@ -13,16 +6,17 @@ mp_pose = mp.solutions.pose
 import numpy as np
 from shapely.geometry import LineString, Polygon
 
-cap = cv2.VideoCapture(0)
+
 class BodyPart():
-  def __init__(self,joint_indexes, joint_origin_index, parent_origin,  image_dims, shapely_fn, offset = np.array([[0,0], [0,0]])):
+  def __init__(self,joint_indexes = np.array([0]), angle_offset = 0,vector_joint_index = np.array([0, 1]), joint_origin_index= np.array([0]), parent_origin= np.array([0, 0]),  image_dims= np.array([0, 0]), shapely_fn=Polygon, offset = np.array([[0,0], [0,0]])):
     # set initially
     self.joint_indexes= joint_indexes
     self.joint_origin_index = joint_origin_index
+    self.vector_joint_index = vector_joint_index
+    self.angle_offset = angle_offset
     # offset = (left padding, right_padding, top padding, bottom padding)
     self.offset = offset
     self.confidence_threshold = 0.3
-    print("self.image_dims = image_dims", image_dims)
     self.image_dims = image_dims
     self.parent_origin = parent_origin
     self.shapely_fn = shapely_fn
@@ -34,8 +28,8 @@ class BodyPart():
     self.joints = None
     
     self.joint_origin = None
-    self.joint_origin_debug = None
     self.outline = None
+    self.vector = None
     
     return
   def trackPart(self, landmarks, parent_image):
@@ -46,23 +40,24 @@ class BodyPart():
     if(self.part_detected):
 
       self.joints = np.array([[point.x, point.y] for point in landmarks.landmark])[self.joint_indexes]
-      # print("self.joints, self.image_dims", self.joints, self.image_dims)
       self.joints *= self.image_dims
       self.joints = self.joints.astype('int64')
-
-      self.outline = np.array(list(self.shapely_fn(self.joints).buffer(40).exterior.coords)).astype('int64')
+      
+      self.outline = np.array(list(self.shapely_fn(self.joints).buffer(100).exterior.coords)).astype('int64')
      
+      joint_origin_list = np.array([[point.x, point.y] for point in landmarks.landmark])[self.joint_origin_index]
+      joint_origin_list *= self.image_dims
+      self.joint_origin  = np.array([np.sum(joint_origin_list[:, 0]), np.sum(joint_origin_list[:, 1])]) / self.joint_origin_index.shape[0]
       
 
-      self.joint_origin_list = np.array([[point.x, point.y] for point in landmarks.landmark])[self.joint_origin_index]
-      self.joint_origin_list *= self.image_dims
-      self.joint_origin  = np.array([np.sum(self.joint_origin_list[:, 0]), np.sum(self.joint_origin_list[:, 1])]) / self.joint_origin_index.shape[0]
-      self.joint_origin_debug = np.copy(self.joint_origin )
-      
+      vector_joints = np.array([[point.x, point.y] for point in landmarks.landmark])[self.vector_joint_index]
+      vector_joints *= self.image_dims
+      self.vector = vector_joints[1] - vector_joints[0]
+  
 
       self.boundingBox()
       self.cropImage(parent_image)
-      self.debugDisplay()
+
     else:
       self.part_image = None
       self.bounding_box = None
@@ -108,7 +103,8 @@ class BodyPart():
 
     new_size = np.array(self.part_image.shape) * scale_factor
     new_size[0], new_size[1] = new_size[1], new_size[0]
-  
+    if(new_size[0] == 0 or new_size[1] == 0):
+      new_size = np.array([1, 1])
   
     self.part_image = cv2.resize(self.part_image, tuple(new_size.astype('int64'))[0:2])
     self.joint_origin  *= scale_factor
@@ -125,145 +121,111 @@ class Body():
   def __init__(self, frame_width, frame_height):
     # initialize with these
     # def __init__(self,joint_indexes, joint_origin_index, parent_origin,  image_dims, shapely_fn, offset = np.array([[0,0], [0,0]])):
+
+    self.canvas_width = 2000
+    self.canvas_height = 1000
+
+    
     self.Head = BodyPart(
-      np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), #joint_indexes
-      np.array([10, 9]).astype('int64'), #joint_origin_index
-      np.array([700, 700]).astype('int64'), #parent_origin
-      np.array([frame_width, frame_height]), #image_dims
-      Polygon, #shapely_fn
+      joint_indexes=np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), #joint_indexes
+      joint_origin_index=np.array([10, 9]).astype('int64'), #joint_origin_index
+      vector_joint_index=np.array([10, 9]).astype('int64'),
+      parent_origin=np.array([self.canvas_height // 3, self.canvas_width // 2]).astype('int64'), #parent_origin
+      image_dims=np.array([frame_width, frame_height]), #image_dims
+      shapely_fn=Polygon, #shapely_fn
       offset=np.array([[40, 200], [40, 200]]).astype('int64'))
   
     self.LeftArm = BodyPart(
-      np.array([12, 14, 16, 18, 20, 22]), 
-      np.array([12]),
-      np.array([800, 900]),
-      np.array([frame_width, frame_height]),
-      LineString,
+      joint_indexes=np.array([12, 14, 16, 18, 20, 22]), 
+      joint_origin_index=np.array([12]),
+      vector_joint_index = np.array([12, 14]),
+      angle_offset = 60,
+      parent_origin=np.array([self.canvas_height // 2, self.canvas_width // 3]),
+      image_dims=np.array([frame_width, frame_height]),
+      shapely_fn=LineString,
       offset=np.array([[100, 30], [100, 30]]).astype('int64'))
   
     self.RightArm = BodyPart(
-      np.array([11, 13, 15, 17, 19, 21]), 
-      np.array([11]),
-      np.array([700, 700]),
-      np.array([frame_width, frame_height]),
-      LineString)
+      joint_indexes=np.array([11, 13, 15, 17, 19, 21]), 
+      joint_origin_index=np.array([11]),
+      angle_offset = -45,
+      vector_joint_index = np.array([11, 13]),
+      parent_origin=np.array([self.canvas_height//2 , self.canvas_width // 3 * 2]),
+      image_dims=np.array([frame_width, frame_height]),
+      shapely_fn=LineString)
    
     self.Torso = BodyPart(
-      np.array([12, 11, 23, 24]), 
-      np.array([11, 12, 24, 23]),
-      np.array([700, 1000]),
-      np.array([frame_width, frame_height]),
-      Polygon)
+      joint_indexes=np.array([12, 11, 23, 24]), 
+      joint_origin_index=np.array([11, 12, 24, 23]),
+      vector_joint_index = np.array([11, 12]),
+      parent_origin=np.array([self.canvas_height // 2, self.canvas_width // 2]),
+      image_dims=np.array([frame_width, frame_height]),
+      shapely_fn=Polygon)
   
-    self.partList = [self.Head, self.LeftArm, self.RightArm, self.Torso]
+    # self.partList = [self.Head, self.LeftArm, self.RightArm, self.Torso]
+    # self.partList = [self.Head, self.LeftArm]
+    self.partList = [self.LeftArm]
 
-    self.canvas_width = 2000
-    self.canvas_height = 2000
-
+  
     # update over time
     self.image = np.zeros((self.canvas_height,self.canvas_width,3), np.uint8)
 
   def update(self, camera_input, landmarks):
-    self.Head.trackPart(landmarks, camera_input)
     for part in self.partList:
       part.trackPart(landmarks, camera_input)
+    
     for part in self.partList:
       if(part.part_detected):
         part.scale(0.7)
-    new_image = np.zeros_like(self.image)
-    mask = np.zeros_like(self.image)
-    if(self.Head.part_detected):
-      
-      image_offset_x = int(self.Head.part_image.shape[0])
-      image_offset_y = int(self.Head.part_image.shape[1]//2)
+        left_arm_offset_y = int(part.joint_origin[0])
+        left_arm_offset_x = int(part.joint_origin[1])
 
-      new_image *= 0
-      mask *= 0
-      new_image[
-        self.Head.parent_origin[0] - image_offset_x :self.Head.parent_origin[0] - image_offset_x + self.Head.part_image.shape[0], 
-        self.Head.parent_origin[1] - image_offset_y:self.Head.parent_origin[1] -  image_offset_y + self.Head.part_image.shape[1]] = self.Head.part_image
-      mask = np.copy(new_image)
+        new_image = np.zeros_like(self.image)
+        x1 = part.parent_origin[0] - left_arm_offset_x
+        x2 = part.parent_origin[0] - left_arm_offset_x + part.part_image.shape[0]
+        y1 = part.parent_origin[1] - left_arm_offset_y
+        y2 = part.parent_origin[1] - left_arm_offset_y + part.part_image.shape[1]
+        if(0 < x1 < new_image.shape[0] and 0 < x2 < new_image.shape[0] and
+           0 < y1 < new_image.shape[1] and 0 < y2 < new_image.shape[1]):
 
-      mask[mask == 0] = 255
-      mask[mask != 255] = 0
+          new_image[x1:x2, y1:y2] = part.part_image
 
-      self.image *= mask
-      self.image += new_image
+          new_image = self.rotatePart(part, new_image)
+  
+          self.addPart(new_image)
 
-    if(self.LeftArm.part_detected):
-      left_arm_offset_y = int(self.LeftArm.joint_origin[0])
-      left_arm_offset_x = int(self.LeftArm.joint_origin[1])
-
-    
-      cv2.circle(self.image, tuple(self.LeftArm.joint_origin.astype('int64')), 10, (0, 0, 255), 10)
-
-
-      new_image *= 0
-      mask *= 0
-      new_image[
-        self.LeftArm.parent_origin[0] - left_arm_offset_x:self.LeftArm.parent_origin[0] + self.LeftArm.part_image.shape[0] - left_arm_offset_x, 
-        self.LeftArm.parent_origin[1] - left_arm_offset_y:self.LeftArm.parent_origin[1] - left_arm_offset_y + self.LeftArm.part_image.shape[1]] = self.LeftArm.part_image
-      mask = np.copy(new_image)
-      
-
-      mask[mask == 0] = 255
-      mask[mask != 255] = 0
-
-      self.image *= mask
-      self.image += new_image
+        else:
+          print("wrong dims!", x1, x2, y1, y2)
+  def rotatePart(self, part, new_image):
+    part_center =(part.parent_origin[1],  part.parent_origin[0])
+    angle = np.arctan2(part.vector[1], part.vector[0])* 180/ np.pi + part.angle_offset
+    print(part_center)
+  
+    M = cv2.getRotationMatrix2D((int(part_center[0]), int(part_center[1])), angle, 1.0)
+    new_image = cv2.warpAffine(new_image, M, (new_image.shape[1], new_image.shape[0]))
+    return new_image
 
 
-      cv2.circle(self.image, (self.LeftArm.parent_origin[1],  self.LeftArm.parent_origin[0]), 10, (0, 255, 0), 10)
-    if(self.RightArm.part_detected):
-      print("right_arm_detectedQ")
-      left_arm_offset_y = int(self.RightArm.joint_origin[0])
-      left_arm_offset_x = int(self.RightArm.joint_origin[1])
-      # self.image[0:self.RightArm.part_image.shape[0], 0:self.RightArm.part_image.shape[1]] = self.RightArm.part_image
-      
-      # cv2.circle(self.image, tuple(self.RightArm.joint_origin.astype('int64')), 10, (0, 0, 255), 10)
+  def addPart(self, new_image):
+    # cv2.imshow("rotate", new_image)
 
-      new_image *= 0
-      mask *= 0
-      new_image[
-        self.RightArm.parent_origin[0] - left_arm_offset_x:self.RightArm.parent_origin[0] + self.RightArm.part_image.shape[0] - left_arm_offset_x, 
-        self.RightArm.parent_origin[1] - left_arm_offset_y:self.RightArm.parent_origin[1] - left_arm_offset_y + self.RightArm.part_image.shape[1]] = self.RightArm.part_image
+    img2gray = cv2.cvtColor(new_image,cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(img2gray, 1, 255, cv2.THRESH_BINARY)
+    mask_inv = cv2.bitwise_not(mask)
 
-      mask = np.copy(new_image)
+    self.image = cv2.bitwise_and(self.image,self.image,mask = mask_inv)
+    self.image += new_image
 
-      mask[mask == 0] = 255
-      mask[mask != 255] = 0
+    return
 
-      self.image *= mask
-      self.image += new_image
-
-      cv2.circle(self.image, (self.RightArm.parent_origin[1],  self.RightArm.parent_origin[0]), 10, (0, 255, 0), 10)
-    if(self.Torso.part_detected):
-      print("torso")
-      torso_offset_y = int(self.Torso.joint_origin[0])
-      left_arm_offset_x = int(self.Torso.joint_origin[1])
-
-      cv2.circle(self.image, tuple(self.Torso.joint_origin.astype('int64')), 10, (0, 0, 255), 10)
-      new_image *= 0
-      mask *= 0
-
-      new_image[
-        self.Torso.parent_origin[0] - left_arm_offset_x:self.Torso.parent_origin[0] + self.Torso.part_image.shape[0] - left_arm_offset_x, 
-        self.Torso.parent_origin[1] - torso_offset_y:self.Torso.parent_origin[1] - torso_offset_y + self.Torso.part_image.shape[1]] = self.Torso.part_image
-      mask = np.copy(new_image)
-
-      mask[mask == 0] = 255
-      mask[mask != 255] = 0
-
-      self.image *= mask
-      self.image += new_image
-      cv2.circle(self.image, (self.Torso.parent_origin[1],  self.Torso.parent_origin[0]), 10, (0, 255, 0), 10)
-    
-      
   def display(self):
   
     cv2.imshow("body", self.image)
     self.image *= 0
 
+
+# ----------------- main
+cap = cv2.VideoCapture(0)
 person = None
 
 with mp_pose.Pose(
@@ -285,10 +247,6 @@ with mp_pose.Pose(
     image.flags.writeable = False
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     results = pose.process(image)
-   
-    if(type(results.segmentation_mask) == type(np.array([1.0]))):
-      condition = np.stack((results.segmentation_mask,) * 3, axis=-1) > 0.1
-      # image = image * condition
 
     # Draw the pose annotation on the image.
     image.flags.writeable = True
