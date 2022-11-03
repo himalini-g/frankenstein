@@ -3,8 +3,9 @@ import mediapipe as mp
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 mp_pose = mp.solutions.pose
+mp_holistic = mp.solutions.holistic
 import numpy as np
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Polygon, MultiPolygon
 
 
 class BodyPart():
@@ -43,7 +44,22 @@ class BodyPart():
       self.joints *= self.image_dims
       self.joints = self.joints.astype('int64')
       
-      self.outline = np.array(list(self.shapely_fn(self.joints).buffer(100).exterior.coords)).astype('int64')
+      
+      # self.outline = np.array(list(self.shapely_fn(self.joints).buffer(100).exterior.coords)).astype('int64')
+      # MultiPolygon
+
+      self.outline = self.shapely_fn(self.joints).buffer(100)
+      new_outline = []
+      if(type(self.outline) == type(MultiPolygon(Polygon(self.joints), Polygon(self.joints)))):
+        new_outline = []
+        for polygon in self.outline:
+          new_outline = new_outline + list(polygon.exterior.coords)
+        self.outline = np.array(new_outline, dtype='int64')
+      else:
+        self.outline = np.array(list(self.shapely_fn(self.joints).buffer(100).exterior.coords)).astype('int64')
+
+        
+ 
      
       joint_origin_list = np.array([[point.x, point.y] for point in landmarks.landmark])[self.joint_origin_index]
       joint_origin_list *= self.image_dims
@@ -102,10 +118,9 @@ class BodyPart():
   def scale(self, scale_factor):
 
     new_size = np.array(self.part_image.shape) * scale_factor
-    new_size[0], new_size[1] = new_size[1], new_size[0]
+    new_size[0], new_size[1] = np.array([new_size[1], new_size[0]]).astype('int64')
     if(new_size[0] == 0 or new_size[1] == 0):
       new_size = np.array([1, 1])
-  
     self.part_image = cv2.resize(self.part_image, tuple(new_size.astype('int64'))[0:2])
     self.joint_origin  *= scale_factor
     self.joints = (self.joints*scale_factor).astype('int64')
@@ -122,8 +137,11 @@ class Body():
     # initialize with these
     # def __init__(self,joint_indexes, joint_origin_index, parent_origin,  image_dims, shapely_fn, offset = np.array([[0,0], [0,0]])):
 
-    self.canvas_width = 2000
-    self.canvas_height = 1000
+    self.canvas_width = 1000
+    self.canvas_height = 2000
+
+    self.head_image = cv2.imread('/Users/hima/Desktop/body_seg/antannae.png')
+    self.head_image = cv2.resize(self.head_image, tuple([int(self.head_image.shape[1] * 0.2), int(self.head_image.shape[0] * 0.2)]))
 
     
     self.Head = BodyPart(
@@ -139,7 +157,7 @@ class Body():
       joint_indexes=np.array([12, 14, 16, 18, 20, 22]), 
       joint_origin_index=np.array([12]),
       vector_joint_index = np.array([12, 14]),
-      angle_offset = 60,
+      angle_offset = 180 + 35,
       parent_origin=np.array([self.canvas_height // 2, self.canvas_width // 3]),
       image_dims=np.array([frame_width, frame_height]),
       shapely_fn=LineString,
@@ -148,12 +166,12 @@ class Body():
     self.RightArm = BodyPart(
       joint_indexes=np.array([11, 13, 15, 17, 19, 21]), 
       joint_origin_index=np.array([11]),
-      angle_offset = -45,
+      angle_offset = -35,
       vector_joint_index = np.array([11, 13]),
       parent_origin=np.array([self.canvas_height//2 , self.canvas_width // 3 * 2]),
       image_dims=np.array([frame_width, frame_height]),
       shapely_fn=LineString)
-   
+    
     self.Torso = BodyPart(
       joint_indexes=np.array([12, 11, 23, 24]), 
       joint_origin_index=np.array([11, 12, 24, 23]),
@@ -161,16 +179,40 @@ class Body():
       parent_origin=np.array([self.canvas_height // 2, self.canvas_width // 2]),
       image_dims=np.array([frame_width, frame_height]),
       shapely_fn=Polygon)
-  
+    self.LeftLeg = BodyPart(
+      joint_indexes=np.array([24, 26, 28, 30]),
+      joint_origin_index=np.array([24]),
+      vector_joint_index = np.array([24,26]),
+      parent_origin=np.array([self.canvas_height //3 * 2, self.canvas_width // 3]),
+      image_dims=np.array([frame_width, frame_height]),
+      angle_offset = 180 + 45,
+      shapely_fn=LineString)
+    self.RightLeg = BodyPart(
+      joint_indexes=np.array([23, 25, 27, 29]),
+      joint_origin_index=np.array([23]),
+      vector_joint_index=np.array([23, 25]),
+      parent_origin=np.array([self.canvas_height//3 * 2 , self.canvas_width // 3 * 2]),
+      image_dims=np.array([frame_width, frame_height]),
+      angle_offset = -45,
+      shapely_fn=LineString)
+    
     # self.partList = [self.Head, self.LeftArm, self.RightArm, self.Torso]
-    # self.partList = [self.Head, self.LeftArm]
-    self.partList = [self.LeftArm]
+    self.partList = [self.Head, self.LeftArm, self.RightArm, self.LeftLeg, self.RightLeg]
+    # self.partList = [self.LeftArm]
 
   
     # update over time
     self.image = np.zeros((self.canvas_height,self.canvas_width,3), np.uint8)
+  def place_header(self):
+    rev = np.array([self.head_image.shape[0], self.head_image.shape[1]])
+    
+    top_left = self.Head.parent_origin - rev / 2
+    bottom_right = top_left + rev
+    self.image[int(top_left[0]):int(bottom_right[0]), int(top_left[1]):int(bottom_right[1])] = self.head_image
+
 
   def update(self, camera_input, landmarks):
+    self.place_header()
     for part in self.partList:
       part.trackPart(landmarks, camera_input)
     
@@ -199,7 +241,7 @@ class Body():
   def rotatePart(self, part, new_image):
     part_center =(part.parent_origin[1],  part.parent_origin[0])
     angle = np.arctan2(part.vector[1], part.vector[0])* 180/ np.pi + part.angle_offset
-    print(part_center)
+   
   
     M = cv2.getRotationMatrix2D((int(part_center[0]), int(part_center[1])), angle, 1.0)
     new_image = cv2.warpAffine(new_image, M, (new_image.shape[1], new_image.shape[0]))
@@ -207,7 +249,6 @@ class Body():
 
 
   def addPart(self, new_image):
-    # cv2.imshow("rotate", new_image)
 
     img2gray = cv2.cvtColor(new_image,cv2.COLOR_BGR2GRAY)
     _, mask = cv2.threshold(img2gray, 1, 255, cv2.THRESH_BINARY)
@@ -228,7 +269,7 @@ class Body():
 cap = cv2.VideoCapture(0)
 person = None
 
-with mp_pose.Pose(
+with mp_holistic.Holistic(
   
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5,
